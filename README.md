@@ -1,8 +1,14 @@
 # MahjongUtilsDemo
 
-用于日麻算法的学习与测试的 Android Demo。**完全离线**（无 INTERNET 权限），所有计算均在本地完成。
+用于日麻算法的学习与测试的 Demo。**完全离线**（无 INTERNET 权限），所有计算均在本地完成。
 
-基于 [mahjong-utils](https://github.com/ssttkkl/mahjong-utils) **0.7.7**（Kotlin Multiplatform，Maven Central）。
+> **技术栈切换中**：已决定暂停 Android Jetpack Compose 开发，改用 **Godot 4.x** 实现完整麻将
+> UI 与对局循环（见 issue「更换游戏引擎」）。Godot 工程位于 **[`godot/`](godot/)**，
+> 目录结构、核心算法（向听/和牌/算点的 GDScript 实现）与测试说明见
+> [godot/README.md](godot/README.md)。本目录的 Android 版本保留，仅作算法参考不再迭代。
+>
+> Android 版基于 [mahjong-utils](https://github.com/ssttkkl/mahjong-utils) **0.7.7**
+> （Kotlin Multiplatform，Maven Central）。
 
 ## 功能
 
