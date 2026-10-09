@@ -12,3 +12,9 @@ app/build
 # Godot
 .godot/
 godot/.godot/
+
+# Web (Vite + Capacitor)
+node_modules/
+dist/
+*.apk
+.vite/
