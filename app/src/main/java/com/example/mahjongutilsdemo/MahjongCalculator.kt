@@ -13,6 +13,7 @@ import mahjongutils.shanten.UnionShantenResult
 import mahjongutils.shanten.shanten
 import mahjongutils.yaku.Yaku
 import mahjongutils.yaku.Yakus
+import kotlin.math.roundToInt
 
 /**
  * 对 mahjong-utils 0.7.7 的薄封装：
@@ -129,6 +130,134 @@ object MahjongCalculator {
             }
         }
     }.trimEnd()
+
+    /** 切牌评估的单条结果 */
+    data class DiscardEvaluation(
+        /** 切掉的牌 */
+        val discard: Tile,
+        /** 切牌后的向听数 */
+        val shantenNum: Int,
+        /** 切牌后的进张（已按牌序排序） */
+        val advance: List<Tile>,
+        /** 切牌后的进张数（剩余张数合计） */
+        val advanceNum: Int,
+        /** 期望打点；仅听牌时计算，其余为 null */
+        val ept: Int?,
+    )
+
+    /**
+     * 切牌评分与牌效率评估。
+     *
+     * 遍历门前手牌的每一种切法（相同的牌合并为一行），对切牌后的 13 张牌调用 [shanten]
+     * 得到向听数、进张列表与进张数；若切牌后已听牌，则对每种进张调用 [hora] 计算打点，
+     * 按剩余枚数加权平均得到 EPT（期望打点）。
+     *
+     * 排序：向听数从小到大 → 进张数从多到少 → EPT 从高到低。
+     * EPT 假设：闲家自摸、无宝牌、无自/场风（取子家自摸合计打点）。
+     *
+     * @param hand 门前手牌文本，需与 [furo] 合计 14 张（已摸牌状态）
+     * @param furo 副露文本，可为 null，视为空
+     */
+    fun evaluateDiscards(hand: String, furo: String?): String {
+        val tiles = parseTiles(hand)
+        val furoList = parseFuro(furo.orEmpty())
+        val total = tiles.size + furoList.size * 3
+        require(total == 14) {
+            "切牌评估需要合计 14 张手牌（门前 ${tiles.size} 张 + 副露 ${furoList.size} 组 = $total 张）"
+        }
+
+        val evaluations = tiles.distinct()
+            .map { discard -> evaluateDiscard(tiles, discard, furoList) }
+            .sortedWith(
+                compareBy<DiscardEvaluation> { it.shantenNum }
+                    .thenByDescending { it.advanceNum }
+                    .thenByDescending { it.ept ?: 0 }
+            )
+        return formatDiscardEvaluations(evaluations)
+    }
+
+    private fun evaluateDiscard(
+        tiles: List<Tile>,
+        discard: Tile,
+        furo: List<Furo>,
+    ): DiscardEvaluation {
+        val after = tiles - discard
+        val info = shanten(after, furo).shantenInfo
+        require(info is ShantenWithoutGot) { "切牌后应为未摸牌状态" }
+        return DiscardEvaluation(
+            discard = discard,
+            shantenNum = info.shantenNum,
+            advance = info.advance.sorted(),
+            advanceNum = info.advanceNum,
+            ept = calcEpt(after, furo, info),
+        )
+    }
+
+    private fun calcEpt(
+        after: List<Tile>,
+        furo: List<Furo>,
+        info: ShantenWithoutGot,
+    ): Int? {
+        if (info.shantenNum != 0 || info.advance.isEmpty()) return null
+
+        val seen = (after + furo.flatMap { it.tiles })
+            .map { tile -> if (tile.num == 0) Tile.get(tile.type, 5) else tile }
+            .groupingBy { it }
+            .eachCount()
+
+        var weighted = 0.0
+        var totalWeight = 0
+        for (agari in info.advance) {
+            val weight = 4 - (seen[agari] ?: 0)
+            if (weight <= 0) continue
+            val result = hora(
+                tiles = after,
+                furo = furo,
+                agari = agari,
+                tsumo = true,
+                dora = 0,
+                selfWind = null,
+                roundWind = null,
+            )
+            weighted += result.childPoint.tsumoTotal.toDouble() * weight
+            totalWeight += weight
+        }
+        if (totalWeight == 0) return 0
+        return (weighted / totalWeight).roundToInt()
+    }
+
+    private fun formatDiscardEvaluations(evaluations: List<DiscardEvaluation>): String = buildString {
+        appendLine("【切牌评估】共 ${evaluations.size} 种切法")
+        appendLine("排序：向听数从小到大 → 进张数从多到少 → EPT 从高到低")
+        appendLine("EPT：闲家自摸、无宝牌、无风役下，各进张打点按剩余枚数加权平均（仅听牌时计算）")
+        appendLine()
+        appendLine(
+            "#".padStartWidth(3) + "  " + "切牌".padEndWidth(5) +
+                "向听".padStartWidth(4) + "进张数".padStartWidth(7) +
+                "EPT".padStartWidth(7) + "  进张"
+        )
+        for ((index, evaluation) in evaluations.withIndex()) {
+            val ept = evaluation.ept?.toString() ?: "-"
+            appendLine(
+                (index + 1).toString().padStartWidth(3) + "  " +
+                    evaluation.discard.toString().padEndWidth(5) +
+                    evaluation.shantenNum.toString().padStartWidth(4) +
+                    evaluation.advanceNum.toString().padStartWidth(7) +
+                    ept.padStartWidth(7) + "  " +
+                    evaluation.advance.joinToString(" ")
+            )
+        }
+    }.trimEnd()
+
+    /** 以“中日韩字符算 2 列”的方式计算显示宽度，用于等宽表格对齐 */
+    private fun displayWidth(text: String): Int =
+        text.fold(0) { width, char -> width + (if (char.code >= 0x3000) 2 else 1) }
+
+    private fun String.padStartWidth(width: Int): String =
+        " ".repeat((width - displayWidth(this)).coerceAtLeast(0)) + this
+
+    private fun String.padEndWidth(width: Int): String =
+        this + " ".repeat((width - displayWidth(this)).coerceAtLeast(0))
 
     /**
      * 和牌分析（役种 / 番 / 符 / 点数）。

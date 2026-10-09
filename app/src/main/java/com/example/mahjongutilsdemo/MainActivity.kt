@@ -235,6 +235,15 @@ fun MahjongDemoScreen(modifier: Modifier = Modifier) {
             }) { Text("算点数") }
         }
 
+        // ---- 切牌评分 ----
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = {
+                result = MahjongCalculator.runSafe {
+                    MahjongCalculator.evaluateDiscards(hand, furo)
+                }.fold(onSuccess = { it }, onFailure = { "错误：${it.message}" })
+            }) { Text("计算切牌评分") }
+        }
+
         Spacer(Modifier.height(8.dp))
 
         // ---- 结果 ----
