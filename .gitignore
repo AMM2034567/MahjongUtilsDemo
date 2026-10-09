@@ -9,3 +9,6 @@
 .externalNativeBuild
 .cxx
 app/build
+# Godot
+.godot/
+godot/.godot/
