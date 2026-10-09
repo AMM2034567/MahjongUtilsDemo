@@ -8,9 +8,13 @@
 
 | 功能 | 库 API | 说明 |
 |------|--------|------|
+| 单机对局（游戏循环） | `shanten()` `hora()` | 发牌 → 摸切循环 → AI 依次行动 → 自摸/流局判定；玩家坐东，三家 AI 按切牌评分决策 |
+| 切牌评分 | `shanten()` | 14 张手牌的每种切法：向听 → 进张 → EPT；对局 AI 与「计算切牌评分」共用 |
 | 向听分析 | `shanten()` | 13 张：向听数 + 进张；14 张：向听数 + 切牌推荐（★ 为不退向打法） |
 | 和牌分析 | `hora()` | 役种（中英对照）/ 番 / 符 / 庄闲点数；支持副露、自摸、宝牌、自风/场风、额外役 |
 | 点数计算 | `getParentPointByHanHu()` `getChildPointByHanHu()` | 纯番符查表，庄/闲荣和与自摸点数 |
+
+对局原型的简化规则（见 `GameEngine`）：无王牌区/宝牌指示牌（红 5 计 1 张宝牌）、只判自摸、不做荣和/副露/立直宣告；自己牌河含听牌进张即振听（不能自摸）。
 
 ## 技术栈
 
@@ -29,7 +33,7 @@
 ## 运行
 
 ```bash
-# 单元测试（JVM，验证库集成，16 个用例）
+# 单元测试（JVM，42 个用例：库集成 16 + 切牌评分 12 + 对局引擎 14）
 ./gradlew :app:testDebugUnitTest
 
 # 构建 debug APK
@@ -65,14 +69,17 @@ MahjongUtilsDemo/
         ├── main/
         │   ├── AndroidManifest.xml  # 无任何权限（离线）
         │   ├── java/com/example/mahjongutilsdemo/
-        │   │   ├── MainActivity.kt          # Compose UI：输入 + 三按钮 + 结果
-        │   │   ├── MahjongCalculator.kt     # 库封装：解析/向听/和牌/点数 + 异常处理
+        │   │   ├── MainActivity.kt          # Compose UI：对局区 + 输入 + 三按钮 + 结果 + 结局弹窗
+        │   │   ├── GameEngine.kt            # 单机对局状态机：牌山/发牌/摸切循环/AI/自摸与流局判定
+        │   │   ├── MahjongCalculator.kt     # 库封装：解析/向听/和牌/点数/切牌评分 + 异常处理
         │   │   └── ui/theme/Theme.kt        # Material 3 主题
         │   └── res/
         │       ├── values/strings.xml
         │       └── values/themes.xml
         └── test/java/com/example/mahjongutilsdemo/
-            └── MahjongCalculatorTest.kt     # 16 个 JVM 单测（对齐官方 README）
+            ├── MahjongCalculatorTest.kt     # 16 个用例（对齐官方 README）
+            ├── DiscardEvaluationTest.kt     # 12 个用例（切牌评分）
+            └── GameEngineTest.kt            # 14 个用例（对局引擎，可注入牌山复现牌局）
 ```
 
 ## 关键代码导读
@@ -125,15 +132,28 @@ val child = getChildPointByHanHu(3, 40)    // ron=5200, tsumoParent=2600, tsumoC
 
 解析失败抛 `IllegalArgumentException`；参数校验失败抛 `ValidationException`（继承前者，`message` 已拼好错误说明）。UI 通过 `MahjongCalculator.runSafe { ... }` 统一捕获并显示 `错误：...`。
 
+### 6. 对局循环（`GameEngine`）
+
+```kotlin
+val engine = GameEngine()          // 传 Random(seed) 可复现牌局
+engine.startRound()                // → AwaitDraw：136 张洗牌，轮流发 13 张
+engine.playerDraw()                // → PlayerDiscard（判自摸 → RoundEnd）
+engine.playerDiscard(tile)         // → AiThinking：更新牌河、振听、听牌提示
+repeat(3) { engine.aiTurn() }      // 三家 AI 摸切，转回 AwaitDraw（或 RoundEnd）
+```
+
+纯 Kotlin、不依赖 Compose；UI 每次调用后拿 `GameState` 快照渲染，AI 思考延时由 UI 的 `LaunchedEffect` 控制（`AI_THINKING_MILLIS`）。牌山可由测试注入：`startRound(wallTiles)`。
+
 ## 后续可扩展方向
 
-- **牌效率 / 打点比较**：`ShantenWithGot.discardToAdvance` 已含每种切牌的进张，可叠加 `hora()` 估算期望打点，做切牌评分
+- **牌效率 / 打点比较**：切牌评分已实现（`evaluateDiscardsDetailed`：向听 → 进张 → EPT），可再叠加 `hora()` 估算期望打点
 - **副露判断**：`furoChanceShanten()` 分析吃碰机会对向听的影响
 - **听牌枚举**：听牌时 `hora()` 遍历 `Tile.all` 可算每种和牌张的番符点（打点表）
 - **改良分析**：`ShantenWithoutGot.improvement` / `goodShapeImprovement`（一向听/听牌的改良张）
 - **规则选项**：`HoraOptions`（切上满贯、累计役满、古役等）、`HanHuOptions`
 - **UI 增强**：手牌可视化（麻将牌图标）、多 Screen 导航（Navigation Compose）、历史记录（DataStore）
-- **AI 决策**：结合进张数 × 平均打点估算 EPT（efficient points），替换/实现切牌 AI
+- **对局规则补全**：立直宣告、荣和、副露（吃碰杠）、王牌区与宝牌指示牌、流局听牌结算、AI 的立直/和牌判断
+- **AI 决策**：当前按 向听 → 进张 → EPT 切牌；可叠加 `hora()` 平均打点做真正的 EPT（efficient points）评估
 - **对接实战**：从剪贴板导入牌谱文本；导出计算结果
 
 ## 官方文档

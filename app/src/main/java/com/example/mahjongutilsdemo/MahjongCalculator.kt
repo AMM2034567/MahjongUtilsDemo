@@ -71,7 +71,7 @@ object MahjongCalculator {
         "Chihou" to "地和",
     )
 
-    private fun yakuLabel(yaku: Yaku): String =
+    fun yakuLabel(yaku: Yaku): String =
         yakuNameZh[yaku.name] ?: yaku.name
 
     /** 解析手牌文本，如 "34568m235p68s"；0m/0p/0s 表示红宝牌 */
@@ -146,19 +146,22 @@ object MahjongCalculator {
     )
 
     /**
-     * 切牌评分与牌效率评估。
+     * 切牌评分与牌效率评估（结构化结果）。
      *
-     * 遍历门前手牌的每一种切法（相同的牌合并为一行），对切牌后的 13 张牌调用 [shanten]
+     * 遍历门前手牌的每一种切法（相同的牌合并为一条），对切牌后的 13 张牌调用 [shanten]
      * 得到向听数、进张列表与进张数；若切牌后已听牌，则对每种进张调用 [hora] 计算打点，
      * 按剩余枚数加权平均得到 EPT（期望打点）。
      *
      * 排序：向听数从小到大 → 进张数从多到少 → EPT 从高到低。
      * EPT 假设：闲家自摸、无宝牌、无自/场风（取子家自摸合计打点）。
      *
+     * 返回值的第一条即评分最高的切法，供 GameEngine 的 AI 直接取用；
+     * [evaluateDiscards] 是同一份结果的文本版。
+     *
      * @param hand 门前手牌文本，需与 [furo] 合计 14 张（已摸牌状态）
      * @param furo 副露文本，可为 null，视为空
      */
-    fun evaluateDiscards(hand: String, furo: String?): String {
+    fun evaluateDiscardsDetailed(hand: String, furo: String?): List<DiscardEvaluation> {
         val tiles = parseTiles(hand)
         val furoList = parseFuro(furo.orEmpty())
         val total = tiles.size + furoList.size * 3
@@ -166,15 +169,25 @@ object MahjongCalculator {
             "切牌评估需要合计 14 张手牌（门前 ${tiles.size} 张 + 副露 ${furoList.size} 组 = $total 张）"
         }
 
-        val evaluations = tiles.distinct()
+        return tiles.distinct()
             .map { discard -> evaluateDiscard(tiles, discard, furoList) }
             .sortedWith(
                 compareBy<DiscardEvaluation> { it.shantenNum }
                     .thenByDescending { it.advanceNum }
                     .thenByDescending { it.ept ?: 0 }
             )
-        return formatDiscardEvaluations(evaluations)
     }
+
+    /**
+     * 切牌评分与牌效率评估（文本结果，按 向听数 → 进张数 → EPT 排序）。
+     *
+     * 详见 [evaluateDiscardsDetailed]。
+     *
+     * @param hand 门前手牌文本，需与 [furo] 合计 14 张（已摸牌状态）
+     * @param furo 副露文本，可为 null，视为空
+     */
+    fun evaluateDiscards(hand: String, furo: String?): String =
+        formatDiscardEvaluations(evaluateDiscardsDetailed(hand, furo))
 
     private fun evaluateDiscard(
         tiles: List<Tile>,
