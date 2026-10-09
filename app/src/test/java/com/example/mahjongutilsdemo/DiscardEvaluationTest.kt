@@ -1,6 +1,7 @@
 package com.example.mahjongutilsdemo
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -126,5 +127,44 @@ class DiscardEvaluationTest {
             MahjongCalculator.evaluateDiscards("xxxx", null)
         }
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun detailedResultMatchesFormattedTable() {
+        // 结构化结果与文本表格一一对应，且第一行就是评分最高（AI 会选）的那张牌
+        val hand = "112233p44556s127z"
+        val detailed = MahjongCalculator.evaluateDiscardsDetailed(hand, null)
+        val text = MahjongCalculator.evaluateDiscards(hand, null)
+        assertEquals(parseRows(text).size, detailed.size)
+
+        val firstRowTile = Regex("""^\s+1\s+(\S+)\s""", RegexOption.MULTILINE)
+            .find(text)!!
+            .groupValues[1]
+        assertEquals(detailed.first().discard.toString(), firstRowTile)
+
+        // 排序不变量：向听 → 进张数 → EPT
+        detailed.zipWithNext().forEach { (prev, cur) ->
+            val ordered = when {
+                prev.shantenNum != cur.shantenNum -> prev.shantenNum < cur.shantenNum
+                prev.advanceNum != cur.advanceNum -> prev.advanceNum > cur.advanceNum
+                else -> (prev.ept ?: 0) >= (cur.ept ?: 0)
+            }
+            assertTrue("$prev 应排在 $cur 之前", ordered)
+        }
+    }
+
+    @Test
+    fun detailedResultKeepsRedFiveIdentity() {
+        // 红 5 与普通 5 是两种不同的切法，切牌评估不应把它们合并
+        val detailed = MahjongCalculator.evaluateDiscardsDetailed("123m056m789m111z22p", null)
+        val discards = detailed.map { it.discard.toString() }
+        assertTrue("应同时包含 0m 与 5m：$discards", "0m" in discards && "5m" in discards)
+    }
+
+    @Test
+    fun detailedResultRejectsThirteenTiles() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MahjongCalculator.evaluateDiscardsDetailed("345678m23456p22s", null)
+        }
     }
 }
