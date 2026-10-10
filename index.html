@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#101820" />
+    <title>Mahjong3D</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="board-canvas"></canvas>
+
+      <div id="hud">
+        <div id="hud-top">
+          <div class="hud-panel" id="round-panel">
+            <span class="label">场次</span>
+            <span class="value" id="round-value">东1局</span>
+          </div>
+          <div class="hud-panel" id="score-panel">
+            <span class="label">点数</span>
+            <span class="value" id="score-value">25000</span>
+          </div>
+          <div class="hud-panel" id="shanten-panel">
+            <span class="label">向听</span>
+            <span class="value" id="shanten-value">-</span>
+          </div>
+        </div>
+
+        <div id="hud-bottom">
+          <div class="hud-panel" id="info-panel">
+            <span class="hint" id="hint-text">点击底部手牌打出</span>
+          </div>
+          <div id="actions">
+            <button type="button" class="hud-button" id="btn-riichi">立直</button>
+            <button type="button" class="hud-button" id="btn-pass">跳过</button>
+            <button type="button" class="hud-button primary" id="btn-win">和牌</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
