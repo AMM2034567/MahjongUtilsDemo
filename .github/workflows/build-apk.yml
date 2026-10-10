@@ -6,9 +6,13 @@ on:
     paths:
       - 'package.json'
       - 'package-lock.json'
+      - 'index.html'
       - 'src/**'
-      - 'android/**'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'vitest.config.ts'
       - 'capacitor.config.*'
+      - 'android/**'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -27,6 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -37,7 +42,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Android SDK (use runner preinstalled SDK)
+      - name: Setup Android SDK (runner preinstalled)
         run: |
           set -euo pipefail
           if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
@@ -47,12 +52,10 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-          # 接受所有 SDK 许可证，避免 gradle/sdkmanager 授权失败
           set +o pipefail
           yes | sdkmanager --licenses > /dev/null
           set -o pipefail
 
-          # 明确安装构建所需平台（与 Capacitor 生成的 compileSdk 对齐）
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           sdkmanager --list_installed | grep -E 'platforms;android|build-tools;' || true
 
@@ -63,6 +66,11 @@ jobs:
           else
             npm install
           fi
+
+      - name: Typecheck + unit tests
+        run: |
+          npx tsc --noEmit
+          npm test
 
       - name: Build web assets
         run: npm run build
@@ -76,18 +84,37 @@ jobs:
       - name: Sync web assets into Android project
         run: npx cap sync android
 
-      - name: Verify offline (no INTERNET permission)
+      - name: Enforce offline (strip INTERNET permission)
         run: |
+          set -euo pipefail
           MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/android\.permission\.INTERNET/d' "$MANIFEST"
+          fi
           if grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-            echo "::error::AndroidManifest.xml 包含 INTERNET 权限，禁止发布离线 APK"
+            echo "::error::无法移除 AndroidManifest.xml 中的 INTERNET 权限"
             exit 1
           fi
-          echo "OK: 未声明 INTERNET 权限"
+          echo "OK: 源清单不含 INTERNET 权限"
 
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug
+
+      - name: Verify offline (merged manifest)
+        run: |
+          set -euo pipefail
+          MERGED=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*merged*' -print -quit)
+          if [ -z "$MERGED" ]; then
+            echo "::error::未找到合并后的 AndroidManifest.xml"
+            exit 1
+          fi
+          echo "checking $MERGED"
+          if grep -q 'android.permission.INTERNET' "$MERGED"; then
+            echo "::error::合并清单包含 INTERNET 权限，禁止发布离线 APK"
+            exit 1
+          fi
+          echo "OK: 合并清单未声明 INTERNET 权限"
 
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk Mahjong3D-debug.apk
